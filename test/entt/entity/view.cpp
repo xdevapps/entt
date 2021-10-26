@@ -74,6 +74,24 @@ TEST(SingleComponentView, Functionalities) {
     ASSERT_FALSE(invalid);
 }
 
+TEST(SingleComponentView, Handle) {
+    entt::registry registry;
+    const auto entity = registry.create();
+
+    auto view = registry.view<int>();
+    auto &&handle = view.handle();
+
+    ASSERT_TRUE(handle.empty());
+    ASSERT_FALSE(handle.contains(entity));
+    ASSERT_EQ(&handle, &view.handle());
+
+    registry.emplace<int>(entity);
+
+    ASSERT_FALSE(handle.empty());
+    ASSERT_TRUE(handle.contains(entity));
+    ASSERT_EQ(&handle, &view.handle());
+}
+
 TEST(SingleComponentView, RawData) {
     entt::registry registry;
     auto view = registry.view<int>();
@@ -189,6 +207,9 @@ TEST(SingleComponentView, Each) {
 
     auto view = registry.view<int>();
     auto iterable = view.each();
+
+    ASSERT_NE(iterable.begin(), iterable.end());
+    ASSERT_NO_THROW(iterable.begin()->operator=(*iterable.begin()));
 
     auto cview = std::as_const(registry).view<const int>();
     auto citerable = cview.each();
@@ -498,6 +519,37 @@ TEST(MultiComponentView, Functionalities) {
     ASSERT_FALSE(invalid);
 }
 
+TEST(MultiComponentView, Handle) {
+    entt::registry registry;
+    const auto entity = registry.create();
+
+    auto view = registry.view<int, char>();
+    auto &&handle = view.handle();
+
+    ASSERT_TRUE(handle.empty());
+    ASSERT_FALSE(handle.contains(entity));
+    ASSERT_EQ(&handle, &view.handle());
+
+    registry.emplace<int>(entity);
+
+    ASSERT_FALSE(handle.empty());
+    ASSERT_TRUE(handle.contains(entity));
+    ASSERT_EQ(&handle, &view.handle());
+
+    view = registry.view<int, char>();
+    auto &&other = view.handle();
+
+    ASSERT_TRUE(other.empty());
+    ASSERT_FALSE(other.contains(entity));
+    ASSERT_EQ(&other, &view.handle());
+    ASSERT_NE(&handle, &other);
+
+    view = view.use<int>();
+
+    ASSERT_NE(&other, &view.handle());
+    ASSERT_EQ(&handle, &view.handle());
+}
+
 TEST(MultiComponentView, LazyTypesFromConstRegistry) {
     entt::registry registry{};
     auto view = std::as_const(registry).view<const empty_type, const int>();
@@ -675,6 +727,9 @@ TEST(MultiComponentView, Each) {
 
     auto view = registry.view<int, char>();
     auto iterable = view.each();
+
+    ASSERT_NE(iterable.begin(), iterable.end());
+    ASSERT_NO_THROW(iterable.begin()->operator=(*iterable.begin()));
 
     auto cview = std::as_const(registry).view<const int, const char>();
     auto citerable = cview.each();

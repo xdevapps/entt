@@ -9,6 +9,7 @@
 #include "../config/config.h"
 #include "../core/any.hpp"
 #include "../core/fwd.hpp"
+#include "../core/iterator.hpp"
 #include "../core/type_info.hpp"
 #include "../core/type_traits.hpp"
 #include "../core/utility.hpp"
@@ -744,7 +745,7 @@ struct meta_data {
 
     /**
      * @brief Returns the number of setters available.
-     * @return The number of arguments accepted by the member function.
+     * @return The number of setters available.
      */
     [[nodiscard]] size_type arity() const ENTT_NOEXCEPT {
         return node->arity;
@@ -966,7 +967,7 @@ private:
 /*! @brief Opaque wrapper for types. */
 class meta_type {
     template<auto Member, typename Pred>
-    const auto *lookup(meta_any *const args, const typename internal::meta_type_node::size_type sz, Pred pred) const {
+    [[nodiscard]] const auto *lookup(meta_any *const args, const typename internal::meta_type_node::size_type sz, Pred pred) const {
         std::decay_t<decltype(node->*Member)> candidate{};
         size_type extent{sz + 1u};
         bool ambiguous{};
@@ -1478,9 +1479,9 @@ public:
     using difference_type = std::ptrdiff_t;
     /*! @brief Type of elements returned by the iterator. */
     using value_type = meta_any;
-    /*! @brief Pointer type, `void` on purpose. */
-    using pointer = void;
-    /*! @brief Reference type, it is **not** an actual reference. */
+    /*! @brief Pointer type, it's a _safe_ temporary object. */
+    using pointer = input_iterator_pointer<value_type>;
+    /*! @brief Reference type, it's **not** an actual reference. */
     using reference = value_type;
     /*! @brief Iterator category. */
     using iterator_category = std::input_iterator_tag;
@@ -1494,7 +1495,7 @@ public:
      * @param iter The actual iterator with which to build the meta iterator.
      */
     template<typename It>
-    meta_iterator(It iter)
+    explicit meta_iterator(It iter)
         : vtable{&basic_vtable<It>},
           handle{std::move(iter)} {}
 
@@ -1507,6 +1508,32 @@ public:
     meta_iterator operator++(int) ENTT_NOEXCEPT {
         meta_iterator orig = *this;
         return ++(*this), orig;
+    }
+
+    /**
+     * @brief Indirection operator for accessing the pointed opaque object.
+     * @return The element to which the iterator points.
+     */
+    [[nodiscard]] reference operator*() const {
+        meta_any other;
+        vtable(operation::deref, handle, &other);
+        return other;
+    }
+
+    /**
+     * @brief Access operator for accessing the pointed opaque object.
+     * @return The element to which the iterator points.
+     */
+    [[nodiscard]] pointer operator->() const ENTT_NOEXCEPT {
+        return operator*();
+    }
+
+    /**
+     * @brief Returns false if an iterator is invalid, true otherwise.
+     * @return False if the iterator is invalid, true otherwise.
+     */
+    [[nodiscard]] explicit operator bool() const ENTT_NOEXCEPT {
+        return static_cast<bool>(handle);
     }
 
     /**
@@ -1525,24 +1552,6 @@ public:
      */
     [[nodiscard]] bool operator!=(const meta_iterator &other) const ENTT_NOEXCEPT {
         return !(*this == other);
-    }
-
-    /**
-     * @brief Indirection operator.
-     * @return The element to which the iterator points.
-     */
-    [[nodiscard]] reference operator*() const {
-        meta_any other;
-        vtable(operation::deref, handle, &other);
-        return other;
-    }
-
-    /**
-     * @brief Returns false if an iterator is invalid, true otherwise.
-     * @return False if the iterator is invalid, true otherwise.
-     */
-    [[nodiscard]] explicit operator bool() const ENTT_NOEXCEPT {
-        return static_cast<bool>(handle);
     }
 
     /**
@@ -1676,9 +1685,9 @@ public:
     using difference_type = std::ptrdiff_t;
     /*! @brief Type of elements returned by the iterator. */
     using value_type = std::pair<meta_any, meta_any>;
-    /*! @brief Pointer type, `void` on purpose. */
-    using pointer = void;
-    /*! @brief Reference type, it is **not** an actual reference. */
+    /*! @brief Pointer type, it's a _safe_ temporary object. */
+    using pointer = input_iterator_pointer<value_type>;
+    /*! @brief Reference type, it's **not** an actual reference. */
     using reference = value_type;
     /*! @brief Iterator category. */
     using iterator_category = std::input_iterator_tag;
@@ -1709,6 +1718,32 @@ public:
     }
 
     /**
+     * @brief Indirection operator for accessing the pointed opaque object.
+     * @return The element to which the iterator points.
+     */
+    [[nodiscard]] reference operator*() const {
+        reference other;
+        vtable(operation::deref, handle, &other);
+        return other;
+    }
+
+    /**
+     * @brief Access operator for accessing the pointed opaque object.
+     * @return The element to which the iterator points.
+     */
+    [[nodiscard]] pointer operator->() const ENTT_NOEXCEPT {
+        return operator*();
+    }
+
+    /**
+     * @brief Returns false if an iterator is invalid, true otherwise.
+     * @return False if the iterator is invalid, true otherwise.
+     */
+    [[nodiscard]] explicit operator bool() const ENTT_NOEXCEPT {
+        return static_cast<bool>(handle);
+    }
+
+    /**
      * @brief Checks if two iterators refer to the same element.
      * @param other The iterator with which to compare.
      * @return True if the iterators refer to the same element, false otherwise.
@@ -1724,24 +1759,6 @@ public:
      */
     [[nodiscard]] bool operator!=(const meta_iterator &other) const ENTT_NOEXCEPT {
         return !(*this == other);
-    }
-
-    /**
-     * @brief Indirection operator.
-     * @return The element to which the iterator points.
-     */
-    [[nodiscard]] reference operator*() const {
-        reference other;
-        vtable(operation::deref, handle, &other);
-        return other;
-    }
-
-    /**
-     * @brief Returns false if an iterator is invalid, true otherwise.
-     * @return False if the iterator is invalid, true otherwise.
-     */
-    [[nodiscard]] explicit operator bool() const ENTT_NOEXCEPT {
-        return static_cast<bool>(handle);
     }
 
 private:

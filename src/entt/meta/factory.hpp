@@ -102,7 +102,7 @@ public:
      * @return A meta factory for the parent type.
      */
     template<typename PropertyOrKey, typename... Value>
-    meta_factory<Type> prop(PropertyOrKey &&property_or_key, Value &&...value) && {
+    meta_factory<Type> prop(PropertyOrKey &&property_or_key, Value &&...value) {
         if constexpr(sizeof...(Value) == 0) {
             unroll(choice<3>, std::forward<PropertyOrKey>(property_or_key));
         } else {
@@ -122,7 +122,7 @@ public:
      * @return A meta factory for the parent type.
      */
     template<typename... Property>
-    meta_factory<Type> props(Property... property) && {
+    meta_factory<Type> props(Property... property) {
         unroll(choice<3>, std::forward<Property>(property)...);
         return {};
     }
@@ -240,11 +240,11 @@ public:
             nullptr,
             internal::meta_node<Base>::resolve(),
             [](meta_any other) ENTT_NOEXCEPT -> meta_any {
-                if(auto *data = other.data(); data) {
-                    return entt::forward_as_meta(*static_cast<Base *>(static_cast<Type *>(data)));
+                if(auto *ptr = other.data(); ptr) {
+                    return forward_as_meta(*static_cast<Base *>(static_cast<Type *>(ptr)));
                 }
 
-                return entt::forward_as_meta(*static_cast<const Base *>(static_cast<const Type *>(std::as_const(other).data())));
+                return forward_as_meta(*static_cast<const Base *>(static_cast<const Type *>(std::as_const(other).data())));
             }
             // tricks clang-format
         };

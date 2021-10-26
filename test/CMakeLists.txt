@@ -159,6 +159,10 @@ if(ENTT_BUILD_SNAPSHOT)
     target_include_directories(cereal PRIVATE ${cereal_INCLUDE_DIR})
 endif()
 
+# Test container
+
+SETUP_BASIC_TEST(dense_hash_map entt/container/dense_hash_map.cpp)
+
 # Test core
 
 SETUP_BASIC_TEST(algorithm entt/core/algorithm.cpp)
@@ -168,6 +172,7 @@ SETUP_BASIC_TEST(enum entt/core/enum.cpp)
 SETUP_BASIC_TEST(family entt/core/family.cpp)
 SETUP_BASIC_TEST(hashed_string entt/core/hashed_string.cpp)
 SETUP_BASIC_TEST(ident entt/core/ident.cpp)
+SETUP_BASIC_TEST(iterator entt/core/iterator.cpp)
 SETUP_BASIC_TEST(memory entt/core/memory.cpp)
 SETUP_BASIC_TEST(monostate entt/core/monostate.cpp)
 SETUP_BASIC_TEST(tuple entt/core/tuple.cpp)
@@ -213,6 +218,7 @@ SETUP_BASIC_TEST(meta_prop entt/meta/meta_prop.cpp)
 SETUP_BASIC_TEST(meta_range entt/meta/meta_range.cpp)
 SETUP_BASIC_TEST(meta_template entt/meta/meta_template.cpp)
 SETUP_BASIC_TEST(meta_type entt/meta/meta_type.cpp)
+SETUP_BASIC_TEST(meta_utility entt/meta/meta_utility.cpp)
 
 # Test poly
 

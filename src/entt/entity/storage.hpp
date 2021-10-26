@@ -30,6 +30,8 @@ namespace internal {
 
 template<typename Container>
 class storage_iterator final {
+    friend storage_iterator<const Container>;
+
     static constexpr auto packed_page_v = ENTT_PACKED_PAGE;
 
     using container_type = std::remove_const_t<Container>;
@@ -52,6 +54,11 @@ public:
     storage_iterator(Container *ref, difference_type idx) ENTT_NOEXCEPT
         : packed{ref},
           index{idx} {}
+
+    template<bool Const = std::is_const_v<Container>, typename = std::enable_if_t<Const>>
+    storage_iterator(const storage_iterator<std::remove_const_t<Container>> &other) ENTT_NOEXCEPT
+        : packed{other.packed},
+          index{other.index} {}
 
     storage_iterator &operator++() ENTT_NOEXCEPT {
         return --index, *this;
@@ -89,51 +96,62 @@ public:
         return (*this + -value);
     }
 
-    difference_type operator-(const storage_iterator &other) const ENTT_NOEXCEPT {
-        return other.index - index;
-    }
-
     [[nodiscard]] reference operator[](const difference_type value) const ENTT_NOEXCEPT {
         return *operator+(value);
     }
 
-    [[nodiscard]] bool operator==(const storage_iterator &other) const ENTT_NOEXCEPT {
-        return other.index == index;
-    }
-
-    [[nodiscard]] bool operator!=(const storage_iterator &other) const ENTT_NOEXCEPT {
-        return !(*this == other);
-    }
-
-    [[nodiscard]] bool operator<(const storage_iterator &other) const ENTT_NOEXCEPT {
-        return index > other.index;
-    }
-
-    [[nodiscard]] bool operator>(const storage_iterator &other) const ENTT_NOEXCEPT {
-        return index < other.index;
-    }
-
-    [[nodiscard]] bool operator<=(const storage_iterator &other) const ENTT_NOEXCEPT {
-        return !(*this > other);
-    }
-
-    [[nodiscard]] bool operator>=(const storage_iterator &other) const ENTT_NOEXCEPT {
-        return !(*this < other);
-    }
-
     [[nodiscard]] pointer operator->() const ENTT_NOEXCEPT {
         const auto pos = index - 1;
-        return (*packed)[pos / packed_page_v] + fast_mod<packed_page_v>(pos);
+        return (*packed)[pos / packed_page_v] + fast_mod(pos, packed_page_v);
     }
 
     [[nodiscard]] reference operator*() const ENTT_NOEXCEPT {
         return *operator->();
     }
 
+    [[nodiscard]] difference_type base() const ENTT_NOEXCEPT {
+        return index;
+    }
+
 private:
     Container *packed;
     difference_type index;
 };
+
+template<typename CLhs, typename CRhs>
+[[nodiscard]] auto operator-(const storage_iterator<CLhs> &lhs, const storage_iterator<CRhs> &rhs) ENTT_NOEXCEPT {
+    return rhs.base() - lhs.base();
+}
+
+template<typename CLhs, typename CRhs>
+[[nodiscard]] bool operator==(const storage_iterator<CLhs> &lhs, const storage_iterator<CRhs> &rhs) ENTT_NOEXCEPT {
+    return lhs.base() == rhs.base();
+}
+
+template<typename CLhs, typename CRhs>
+[[nodiscard]] bool operator!=(const storage_iterator<CLhs> &lhs, const storage_iterator<CRhs> &rhs) ENTT_NOEXCEPT {
+    return !(lhs == rhs);
+}
+
+template<typename CLhs, typename CRhs>
+[[nodiscard]] bool operator<(const storage_iterator<CLhs> &lhs, const storage_iterator<CRhs> &rhs) ENTT_NOEXCEPT {
+    return lhs.base() > rhs.base();
+}
+
+template<typename CLhs, typename CRhs>
+[[nodiscard]] bool operator>(const storage_iterator<CLhs> &lhs, const storage_iterator<CRhs> &rhs) ENTT_NOEXCEPT {
+    return lhs.base() < rhs.base();
+}
+
+template<typename CLhs, typename CRhs>
+[[nodiscard]] bool operator<=(const storage_iterator<CLhs> &lhs, const storage_iterator<CRhs> &rhs) ENTT_NOEXCEPT {
+    return !(lhs > rhs);
+}
+
+template<typename CLhs, typename CRhs>
+[[nodiscard]] bool operator>=(const storage_iterator<CLhs> &lhs, const storage_iterator<CRhs> &rhs) ENTT_NOEXCEPT {
+    return !(lhs < rhs);
+}
 
 } // namespace internal
 
@@ -182,7 +200,7 @@ class basic_storage: public basic_sparse_set<Entity, typename std::allocator_tra
     using container_type = std::vector<typename alloc_traits::pointer, typename alloc_traits::template rebind_alloc<typename alloc_traits::pointer>>;
 
     [[nodiscard]] auto &element_at(const std::size_t pos) const {
-        return packed.first()[pos / packed_page_v][fast_mod<packed_page_v>(pos)];
+        return packed.first()[pos / packed_page_v][fast_mod(pos, packed_page_v)];
     }
 
     auto assure_at_least(const std::size_t pos) {
@@ -204,7 +222,7 @@ class basic_storage: public basic_sparse_set<Entity, typename std::allocator_tra
             }
         }
 
-        return container[idx] + fast_mod<packed_page_v>(pos);
+        return container[idx] + fast_mod(pos, packed_page_v);
     }
 
     void release_unused_pages() {

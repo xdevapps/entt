@@ -72,16 +72,25 @@ struct sparse_set_iterator final {
         return (*this + -value);
     }
 
-    difference_type operator-(const sparse_set_iterator &other) const ENTT_NOEXCEPT {
-        return other.index - index;
-    }
-
     [[nodiscard]] reference operator[](const difference_type value) const {
         return *operator+(value);
     }
 
+    [[nodiscard]] pointer operator->() const {
+        const auto pos = index - 1;
+        return packed->data() + pos;
+    }
+
+    [[nodiscard]] reference operator*() const {
+        return *operator->();
+    }
+
+    [[nodiscard]] difference_type operator-(const sparse_set_iterator &other) const ENTT_NOEXCEPT {
+        return other.index - index;
+    }
+
     [[nodiscard]] bool operator==(const sparse_set_iterator &other) const ENTT_NOEXCEPT {
-        return other.index == index;
+        return index == other.index;
     }
 
     [[nodiscard]] bool operator!=(const sparse_set_iterator &other) const ENTT_NOEXCEPT {
@@ -102,15 +111,6 @@ struct sparse_set_iterator final {
 
     [[nodiscard]] bool operator>=(const sparse_set_iterator &other) const ENTT_NOEXCEPT {
         return !(*this < other);
-    }
-
-    [[nodiscard]] pointer operator->() const {
-        const auto pos = index - 1;
-        return packed->data() + pos;
-    }
-
-    [[nodiscard]] reference operator*() const {
-        return *operator->();
     }
 
 private:
@@ -171,13 +171,13 @@ class basic_sparse_set {
     [[nodiscard]] auto sparse_ptr(const Entity entt) const {
         const auto pos = static_cast<size_type>(entity_traits::to_entity(entt));
         const auto page = pos / sparse_page_v;
-        return (page < sparse.size() && sparse[page]) ? (sparse[page] + fast_mod<sparse_page_v>(pos)) : nullptr;
+        return (page < sparse.size() && sparse[page]) ? (sparse[page] + fast_mod(pos, sparse_page_v)) : nullptr;
     }
 
     [[nodiscard]] auto &sparse_ref(const Entity entt) const {
         ENTT_ASSERT(sparse_ptr(entt), "Invalid element");
         const auto pos = static_cast<size_type>(entity_traits::to_entity(entt));
-        return sparse[pos / sparse_page_v][fast_mod<sparse_page_v>(pos)];
+        return sparse[pos / sparse_page_v][fast_mod(pos, sparse_page_v)];
     }
 
     void release_sparse_pages() {
@@ -253,7 +253,7 @@ protected:
             std::uninitialized_fill(sparse[page], sparse[page] + sparse_page_v, null);
         }
 
-        auto &elem = sparse[page][fast_mod<sparse_page_v>(pos)];
+        auto &elem = sparse[page][fast_mod(pos, sparse_page_v)];
         ENTT_ASSERT(entity_traits::to_version(elem) == entity_traits::to_version(tombstone), "Slot not available");
 
         if(free_list == null) {
@@ -531,13 +531,10 @@ public:
      * @return True if the sparse set contains the entity, false otherwise.
      */
     [[nodiscard]] bool contains(const entity_type entt) const ENTT_NOEXCEPT {
-        if(auto elem = sparse_ptr(entt); elem) {
-            constexpr auto cap = entity_traits::to_entity(entt::null);
-            // testing versions permits to avoid accessing the packed array
-            return (((~cap & entity_traits::to_integral(entt)) ^ entity_traits::to_integral(*elem)) < cap);
-        }
-
-        return false;
+        const auto elem = sparse_ptr(entt);
+        constexpr auto cap = entity_traits::to_entity(null);
+        // testing versions permits to avoid accessing the packed array
+        return elem && (((~cap & entity_traits::to_integral(entt)) ^ entity_traits::to_integral(*elem)) < cap);
     }
 
     /**
@@ -547,11 +544,9 @@ public:
      * version otherwise.
      */
     [[nodiscard]] version_type current(const entity_type entt) const {
-        if(auto elem = sparse_ptr(entt); elem) {
-            return entity_traits::to_version(*elem);
-        }
-
-        return entity_traits::to_version(tombstone);
+        const auto elem = sparse_ptr(entt);
+        constexpr auto fallback = entity_traits::to_version(tombstone);
+        return elem ? entity_traits::to_version(*elem) : fallback;
     }
 
     /**

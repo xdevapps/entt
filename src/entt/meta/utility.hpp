@@ -2,7 +2,6 @@
 #define ENTT_META_UTILITY_HPP
 
 #include <cstddef>
-#include <functional>
 #include <type_traits>
 #include <utility>
 #include "../config/config.h"
@@ -80,14 +79,33 @@ struct meta_function_descriptor<Type, Ret Class::*> {
  * @brief Meta function descriptor.
  * @tparam Type Reflected type to which the meta function is associated.
  * @tparam Ret Function return type.
- * @tparam Args Function arguments.
+ * @tparam MaybeType First function argument.
+ * @tparam Args Other function arguments.
  */
-template<typename Type, typename Ret, typename... Args>
-struct meta_function_descriptor<Type, Ret (*)(Args...)> {
+template<typename Type, typename Ret, typename MaybeType, typename... Args>
+struct meta_function_descriptor<Type, Ret (*)(MaybeType, Args...)> {
     /*! @brief Meta function return type. */
     using return_type = Ret;
     /*! @brief Meta function arguments. */
-    using args_type = type_list<Args...>;
+    using args_type = std::conditional_t<std::is_same_v<Type, std::remove_const_t<std::remove_reference_t<MaybeType>>>, type_list<Args...>, type_list<MaybeType, Args...>>;
+
+    /*! @brief True if the meta function is const, false otherwise. */
+    static constexpr auto is_const = std::is_same_v<Type, std::remove_const_t<std::remove_reference_t<MaybeType>>> && std::is_const_v<std::remove_reference_t<MaybeType>>;
+    /*! @brief True if the meta function is static, false otherwise. */
+    static constexpr auto is_static = !std::is_same_v<Type, std::remove_const_t<std::remove_reference_t<MaybeType>>>;
+};
+
+/**
+ * @brief Meta function descriptor.
+ * @tparam Type Reflected type to which the meta function is associated.
+ * @tparam Ret Function return type.
+ */
+template<typename Type, typename Ret>
+struct meta_function_descriptor<Type, Ret (*)()> {
+    /*! @brief Meta function return type. */
+    using return_type = Ret;
+    /*! @brief Meta function arguments. */
+    using args_type = type_list<>;
 
     /*! @brief True if the meta function is const, false otherwise. */
     static constexpr auto is_const = false;
@@ -178,7 +196,8 @@ template<typename Type, auto Data>
 [[nodiscard]] bool meta_setter([[maybe_unused]] meta_handle instance, [[maybe_unused]] meta_any value) {
     if constexpr(!std::is_same_v<decltype(Data), Type> && !std::is_same_v<decltype(Data), std::nullptr_t>) {
         if constexpr(std::is_function_v<std::remove_reference_t<std::remove_pointer_t<decltype(Data)>>>) {
-            using data_type = type_list_element_t<1u, typename meta_function_helper_t<Type, decltype(Data)>::args_type>;
+            using descriptor = meta_function_helper_t<Type, decltype(Data)>;
+            using data_type = type_list_element_t<descriptor::is_static, typename descriptor::args_type>;
 
             if(auto *const clazz = instance->try_cast<Type>(); clazz && value.allow_cast<data_type>()) {
                 Data(*clazz, value.cast<data_type>());
@@ -259,43 +278,53 @@ template<typename Type, auto Data, typename Policy = as_is_t>
 
 namespace internal {
 
-template<typename Type, typename Policy = as_is_t, typename Candidate, std::size_t... Index>
-[[nodiscard]] meta_any meta_invoke([[maybe_unused]] meta_handle instance, Candidate &&candidate, meta_any *args, std::index_sequence<Index...>) {
-    using descriptor = meta_function_helper_t<Type, Candidate>;
+template<typename Type, typename Policy, typename Candidate, typename First, typename... Other>
+[[nodiscard]] meta_any meta_invoke_with_args(Candidate &&candidate, First &&maybe_clazz, Other &&...other) {
+    using descriptor = meta_function_helper_t<Type, std::remove_reference_t<Candidate>>;
 
-    const auto invoke = [&candidate](auto &&maybe_clazz, auto &&...other) {
-        if constexpr(std::is_member_function_pointer_v<std::remove_reference_t<Candidate>>) {
-            if constexpr(std::is_void_v<typename descriptor::return_type>) {
-                (std::forward<decltype(maybe_clazz)>(maybe_clazz).*std::forward<Candidate>(candidate))(std::forward<decltype(other)>(other)...);
-                return meta_any{std::in_place_type<void>};
-            } else {
-                return meta_dispatch<Policy>((std::forward<decltype(maybe_clazz)>(maybe_clazz).*std::forward<Candidate>(candidate))(std::forward<decltype(other)>(other)...));
-            }
+    if constexpr(std::is_member_function_pointer_v<std::remove_reference_t<Candidate>>) {
+        if constexpr(std::is_void_v<typename descriptor::return_type>) {
+            (std::forward<decltype(maybe_clazz)>(maybe_clazz).*std::forward<Candidate>(candidate))(std::forward<decltype(other)>(other)...);
+            return meta_any{std::in_place_type<void>};
         } else {
-            if constexpr(std::is_void_v<typename descriptor::return_type>) {
-                std::forward<Candidate>(candidate)(std::forward<decltype(maybe_clazz)>(maybe_clazz), std::forward<decltype(other)>(other)...);
-                return meta_any{std::in_place_type<void>};
-            } else {
-                return meta_dispatch<Policy>(std::forward<Candidate>(candidate)(std::forward<decltype(maybe_clazz)>(maybe_clazz), std::forward<decltype(other)>(other)...));
-            }
+            return meta_dispatch<Policy>((std::forward<decltype(maybe_clazz)>(maybe_clazz).*std::forward<Candidate>(candidate))(std::forward<decltype(other)>(other)...));
         }
-    };
+    } else if constexpr(std::is_void_v<typename descriptor::return_type>) {
+        std::forward<Candidate>(candidate)(std::forward<decltype(maybe_clazz)>(maybe_clazz), std::forward<decltype(other)>(other)...);
+        return meta_any{std::in_place_type<void>};
+    } else {
+        return meta_dispatch<Policy>(std::forward<Candidate>(candidate)(std::forward<decltype(maybe_clazz)>(maybe_clazz), std::forward<decltype(other)>(other)...));
+    }
+}
+
+template<typename Type, typename Policy, typename Candidate, std::size_t... Index>
+[[nodiscard]] meta_any meta_invoke([[maybe_unused]] meta_handle instance, Candidate &&candidate, [[maybe_unused]] meta_any *args, std::index_sequence<Index...>) {
+    using descriptor = meta_function_helper_t<Type, std::remove_reference_t<Candidate>>;
 
     if constexpr(std::is_invocable_v<std::remove_reference_t<Candidate>, const Type &, type_list_element_t<Index, typename descriptor::args_type>...>) {
         if(const auto *const clazz = instance->try_cast<const Type>(); clazz && ((args + Index)->allow_cast<type_list_element_t<Index, typename descriptor::args_type>>() && ...)) {
-            return invoke(*clazz, (args + Index)->cast<type_list_element_t<Index, typename descriptor::args_type>>()...);
+            return meta_invoke_with_args<Type, Policy>(std::forward<Candidate>(candidate), *clazz, (args + Index)->cast<type_list_element_t<Index, typename descriptor::args_type>>()...);
         }
+
+        return meta_any{};
     } else if constexpr(std::is_invocable_v<std::remove_reference_t<Candidate>, Type &, type_list_element_t<Index, typename descriptor::args_type>...>) {
         if(auto *const clazz = instance->try_cast<Type>(); clazz && ((args + Index)->allow_cast<type_list_element_t<Index, typename descriptor::args_type>>() && ...)) {
-            return invoke(*clazz, (args + Index)->cast<type_list_element_t<Index, typename descriptor::args_type>>()...);
+            return meta_invoke_with_args<Type, Policy>(std::forward<Candidate>(candidate), *clazz, (args + Index)->cast<type_list_element_t<Index, typename descriptor::args_type>>()...);
         }
-    } else {
-        if(((args + Index)->allow_cast<type_list_element_t<Index, typename descriptor::args_type>>() && ...)) {
-            return invoke((args + Index)->cast<type_list_element_t<Index, typename descriptor::args_type>>()...);
-        }
-    }
 
-    return meta_any{};
+        return meta_any{};
+    } else if constexpr(sizeof...(Index) != 0u) {
+        if(((args + Index)->allow_cast<type_list_element_t<Index, typename descriptor::args_type>>() && ...)) {
+            return meta_invoke_with_args<Type, Policy>(std::forward<Candidate>(candidate), (args + Index)->cast<type_list_element_t<Index, typename descriptor::args_type>>()...);
+        }
+
+        return meta_any{};
+    } else if constexpr(std::is_void_v<decltype(std::forward<Candidate>(candidate)())>) {
+        std::forward<Candidate>(candidate)();
+        return meta_any{std::in_place_type<void>};
+    } else {
+        return meta_dispatch<Policy>(std::forward<Candidate>(candidate)());
+    }
 }
 
 template<typename Type, typename... Args, std::size_t... Index>
@@ -315,32 +344,22 @@ template<typename Type, typename... Args, std::size_t... Index>
  */
 
 /**
- * @brief Invokes a callable object given a list of erased parameters, if
- * possible.
- * @tparam Type Reflected type to which the callable object is associated.
+ * @brief Tries to _invoke_ an object given a list of erased parameters.
+ * @tparam Type Reflected type to which the object to _invoke_ is associated.
  * @tparam Policy Optional policy (no policy set by default).
- * @tparam Candidate The type of the actual callable object to invoke.
+ * @tparam Candidate The type of the actual object to _invoke_.
  * @param instance An opaque instance of the underlying type, if required.
- * @param candidate The actual callable object to invoke.
- * @param args Parameters to use to invoke the callable object.
+ * @param candidate The actual object to _invoke_.
+ * @param args Parameters to use to _invoke_ the object.
  * @return A meta any containing the returned value, if any.
  */
 template<typename Type, typename Policy = as_is_t, typename Candidate>
 [[nodiscard]] meta_any meta_invoke([[maybe_unused]] meta_handle instance, Candidate &&candidate, [[maybe_unused]] meta_any *const args) {
-    if constexpr(std::is_invocable_v<std::remove_reference_t<Candidate>>) {
-        if constexpr(std::is_void_v<decltype(std::forward<Candidate>(candidate)())>) {
-            std::forward<Candidate>(candidate)();
-            return meta_any{std::in_place_type<void>};
-        } else {
-            return meta_dispatch<Policy>(std::forward<Candidate>(candidate)());
-        }
-    } else {
-        return internal::meta_invoke<Type, Policy>(std::move(instance), std::forward<Candidate>(candidate), args, std::make_index_sequence<meta_function_helper_t<Type, std::remove_reference_t<Candidate>>::args_type::size>{});
-    }
+    return internal::meta_invoke<Type, Policy>(std::move(instance), std::forward<Candidate>(candidate), args, std::make_index_sequence<meta_function_helper_t<Type, std::remove_reference_t<Candidate>>::args_type::size>{});
 }
 
 /**
- * @brief Invokes a function given a list of erased parameters, if possible.
+ * @brief Tries to invoke a function given a list of erased parameters.
  * @tparam Type Reflected type to which the function is associated.
  * @tparam Candidate The actual function to invoke.
  * @tparam Policy Optional policy (no policy set by default).
@@ -350,11 +369,11 @@ template<typename Type, typename Policy = as_is_t, typename Candidate>
  */
 template<typename Type, auto Candidate, typename Policy = as_is_t>
 [[nodiscard]] meta_any meta_invoke(meta_handle instance, meta_any *const args) {
-    return meta_invoke<Type, Policy>(std::move(instance), Candidate, args);
+    return internal::meta_invoke<Type, Policy>(std::move(instance), Candidate, args, std::make_index_sequence<meta_function_helper_t<Type, std::remove_reference_t<decltype(Candidate)>>::args_type::size>{});
 }
 
 /**
- * @brief Constructs an instance given a list of erased parameters, if possible.
+ * @brief Tries to construct an instance given a list of erased parameters.
  * @tparam Type Actual type of the instance to construct.
  * @tparam Args Types of arguments expected.
  * @param args Parameters to use to construct the instance.
@@ -366,21 +385,25 @@ template<typename Type, typename... Args>
 }
 
 /**
- * @brief Constructs an instance given a list of erased parameters, if possible.
- * @tparam Type Reflected type to which the callable object is associated.
+ * @brief Tries to construct an instance given a list of erased parameters.
+ * @tparam Type Reflected type to which the object to _invoke_ is associated.
  * @tparam Policy Optional policy (no policy set by default).
- * @tparam Candidate The actual callable object to invoke.
- * @param args Parameters to use to invoke the callable object.
- * @param candidate The actual callable object to invoke.
+ * @tparam Candidate The type of the actual object to _invoke_.
+ * @param args Parameters to use to _invoke_ the object.
+ * @param candidate The actual object to _invoke_.
  * @return A meta any containing the returned value, if any.
  */
 template<typename Type, typename Policy = as_is_t, typename Candidate>
 [[nodiscard]] meta_any meta_construct(Candidate &&candidate, meta_any *const args) {
-    return meta_invoke<Type, Policy>({}, std::forward<Candidate>(candidate), args);
+    if constexpr(meta_function_helper_t<Type, Candidate>::is_static) {
+        return internal::meta_invoke<Type, Policy>({}, std::forward<Candidate>(candidate), args, std::make_index_sequence<meta_function_helper_t<Type, std::remove_reference_t<Candidate>>::args_type::size>{});
+    } else {
+        return internal::meta_invoke<Type, Policy>(*args, std::forward<Candidate>(candidate), args + 1u, std::make_index_sequence<meta_function_helper_t<Type, std::remove_reference_t<Candidate>>::args_type::size>{});
+    }
 }
 
 /**
- * @brief Constructs an instance given a list of erased parameters, if possible.
+ * @brief Tries to construct an instance given a list of erased parameters.
  * @tparam Type Reflected type to which the function is associated.
  * @tparam Candidate The actual function to invoke.
  * @tparam Policy Optional policy (no policy set by default).
@@ -389,7 +412,11 @@ template<typename Type, typename Policy = as_is_t, typename Candidate>
  */
 template<typename Type, auto Candidate, typename Policy = as_is_t>
 [[nodiscard]] meta_any meta_construct(meta_any *const args) {
-    return meta_invoke<Type, Policy>({}, Candidate, args);
+    if constexpr(meta_function_helper_t<Type, decltype(Candidate)>::is_static) {
+        return internal::meta_invoke<Type, Policy>({}, Candidate, args, std::make_index_sequence<meta_function_helper_t<Type, std::remove_reference_t<decltype(Candidate)>>::args_type::size>{});
+    } else {
+        return internal::meta_invoke<Type, Policy>(*args, Candidate, args + 1u, std::make_index_sequence<meta_function_helper_t<Type, std::remove_reference_t<decltype(Candidate)>>::args_type::size>{});
+    }
 }
 
 } // namespace entt

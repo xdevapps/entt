@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <utility>
 #include "../config/config.h"
+#include "../core/iterator.hpp"
 #include "../core/type_traits.hpp"
 #include "component.hpp"
 #include "entity.hpp"
@@ -34,7 +35,7 @@ class iterable_storage final {
     struct iterable_storage_iterator final {
         using difference_type = std::ptrdiff_t;
         using value_type = decltype(std::tuple_cat(std::tuple<Entity>{}, std::declval<decltype(std::declval<storage_type &>().get_as_tuple({}))>()));
-        using pointer = void;
+        using pointer = input_iterator_pointer<value_type>;
         using reference = value_type;
         using iterator_category = std::input_iterator_tag;
 
@@ -53,6 +54,10 @@ class iterable_storage final {
 
         [[nodiscard]] reference operator*() const ENTT_NOEXCEPT {
             return {*std::get<It>(it)...};
+        }
+
+        [[nodiscard]] pointer operator->() const ENTT_NOEXCEPT {
+            return operator*();
         }
 
         [[nodiscard]] bool operator==(const iterable_storage_iterator &other) const ENTT_NOEXCEPT {
@@ -242,7 +247,7 @@ class basic_view<Entity, get_t<Component...>, exclude_t<Exclude...>> {
         struct iterable_iterator final {
             using difference_type = std::ptrdiff_t;
             using value_type = decltype(std::tuple_cat(std::tuple<Entity>{}, std::declval<basic_view>().get({})));
-            using pointer = void;
+            using pointer = input_iterator_pointer<value_type>;
             using reference = value_type;
             using iterator_category = std::input_iterator_tag;
 
@@ -261,6 +266,10 @@ class basic_view<Entity, get_t<Component...>, exclude_t<Exclude...>> {
 
             [[nodiscard]] reference operator*() const ENTT_NOEXCEPT {
                 return std::tuple_cat(std::make_tuple(*it), view->get(*it));
+            }
+
+            [[nodiscard]] pointer operator->() const ENTT_NOEXCEPT {
+                return operator*();
             }
 
             [[nodiscard]] bool operator==(const iterable_iterator &other) const ENTT_NOEXCEPT {
@@ -336,6 +345,8 @@ public:
     using reverse_iterator = internal::view_iterator<basic_common_type, typename basic_common_type::reverse_iterator, sizeof...(Component) - 1u, sizeof...(Exclude)>;
     /*! @brief Iterable view type. */
     using iterable_view = iterable;
+    /*! @brief Common type among all storage types. */
+    using common_type = basic_common_type;
 
     /**
      * @brief Storage type associated with a given component.
@@ -370,6 +381,14 @@ public:
         basic_view other{*this};
         other.view = std::get<storage_type<Comp> *>(pools);
         return other;
+    }
+
+    /**
+     * @brief Returns the leading storage of a view.
+     * @return The leading storage of the view.
+     */
+    const common_type &handle() const ENTT_NOEXCEPT {
+        return *view;
     }
 
     /**
@@ -682,6 +701,8 @@ public:
     using reverse_iterator = typename basic_common_type::reverse_iterator;
     /*! @brief Iterable view type. */
     using iterable_view = internal::iterable_storage<Entity, Component>;
+    /*! @brief Common type among all storage types. */
+    using common_type = basic_common_type;
     /*! @brief Storage type associated with the view component. */
     using storage_type = constness_as_t<typename storage_traits<Entity, std::remove_const_t<Component>>::storage_type, Component>;
 
@@ -697,6 +718,14 @@ public:
     basic_view(storage_type &ref) ENTT_NOEXCEPT
         : pools{&ref},
           filter{} {}
+
+    /**
+     * @brief Returns the leading storage of a view.
+     * @return The leading storage of the view.
+     */
+    const common_type &handle() const ENTT_NOEXCEPT {
+        return *std::get<0>(pools);
+    }
 
     /**
      * @brief Returns the number of entities that have the given component.

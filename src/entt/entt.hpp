@@ -1,4 +1,5 @@
 #include "config/version.h"
+#include "container/dense_hash_map.hpp"
 #include "core/algorithm.hpp"
 #include "core/any.hpp"
 #include "core/attribute.h"
@@ -7,6 +8,7 @@
 #include "core/family.hpp"
 #include "core/hashed_string.hpp"
 #include "core/ident.hpp"
+#include "core/iterator.hpp"
 #include "core/memory.hpp"
 #include "core/monostate.hpp"
 #include "core/tuple.hpp"

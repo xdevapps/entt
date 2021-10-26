@@ -931,6 +931,29 @@ TEST(Storage, ConstReverseIterator) {
     ASSERT_GE(cend, pool.crend());
 }
 
+TEST(Storage, IteratorConversion) {
+    entt::storage<boxed_int> pool;
+    pool.emplace(entt::entity{3}, 42);
+
+    typename entt::storage<boxed_int>::iterator it = pool.begin();
+    typename entt::storage<boxed_int>::const_iterator cit = it;
+
+    static_assert(std::is_same_v<decltype(*it), boxed_int &>);
+    static_assert(std::is_same_v<decltype(*cit), const boxed_int &>);
+
+    ASSERT_EQ(it->value, 42);
+    ASSERT_EQ(it->value, cit->value);
+
+    ASSERT_EQ(it - cit, 0);
+    ASSERT_EQ(cit - it, 0);
+    ASSERT_LE(it, cit);
+    ASSERT_LE(cit, it);
+    ASSERT_GE(it, cit);
+    ASSERT_GE(cit, it);
+    ASSERT_EQ(it, cit);
+    ASSERT_NE(++cit, it);
+}
+
 TEST(Storage, Raw) {
     entt::storage<int> pool;
 
