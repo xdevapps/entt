@@ -45,7 +45,6 @@ class dense_hash_map_iterator {
     using iterator_traits = std::iterator_traits<decltype(std::addressof(std::declval<It>()->element))>;
 
 public:
-    using iterator_type = It;
     using value_type = typename iterator_traits::value_type;
     using pointer = typename iterator_traits::pointer;
     using reference = typename iterator_traits::reference;
@@ -54,11 +53,11 @@ public:
 
     dense_hash_map_iterator() ENTT_NOEXCEPT = default;
 
-    dense_hash_map_iterator(const iterator_type iter) ENTT_NOEXCEPT
+    dense_hash_map_iterator(const It iter) ENTT_NOEXCEPT
         : it{iter} {}
 
-    template<bool Const = std::is_const_v<std::remove_pointer_t<iterator_type>>, typename = std::enable_if_t<Const>>
-    dense_hash_map_iterator(const dense_hash_map_iterator<std::remove_const_t<std::remove_pointer_t<iterator_type>> *> &other)
+    template<bool Const = std::is_const_v<std::remove_pointer_t<It>>, typename = std::enable_if_t<Const>>
+    dense_hash_map_iterator(const dense_hash_map_iterator<std::remove_const_t<std::remove_pointer_t<It>> *> &other)
         : it{other.it} {}
 
     dense_hash_map_iterator &operator++() ENTT_NOEXCEPT {
@@ -98,7 +97,7 @@ public:
     }
 
     [[nodiscard]] reference operator[](const difference_type value) const {
-        return it->element;
+        return it[value].element;
     }
 
     [[nodiscard]] pointer operator->() const {
@@ -109,22 +108,27 @@ public:
         return *operator->();
     }
 
-    [[nodiscard]] iterator_type base() const ENTT_NOEXCEPT {
-        return it;
-    }
+    template<typename ILhs, typename IRhs>
+    friend auto operator-(const dense_hash_map_iterator<ILhs> &, const dense_hash_map_iterator<IRhs> &) ENTT_NOEXCEPT;
+
+    template<typename ILhs, typename IRhs>
+    friend bool operator==(const dense_hash_map_iterator<ILhs> &, const dense_hash_map_iterator<IRhs> &) ENTT_NOEXCEPT;
+
+    template<typename ILhs, typename IRhs>
+    friend bool operator<(const dense_hash_map_iterator<ILhs> &, const dense_hash_map_iterator<IRhs> &) ENTT_NOEXCEPT;
 
 private:
-    iterator_type it;
+    It it;
 };
 
 template<typename ILhs, typename IRhs>
 [[nodiscard]] auto operator-(const dense_hash_map_iterator<ILhs> &lhs, const dense_hash_map_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
-    return lhs.base() - rhs.base();
+    return lhs.it - rhs.it;
 }
 
 template<typename ILhs, typename IRhs>
 [[nodiscard]] bool operator==(const dense_hash_map_iterator<ILhs> &lhs, const dense_hash_map_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
-    return lhs.base() == rhs.base();
+    return lhs.it == rhs.it;
 }
 
 template<typename ILhs, typename IRhs>
@@ -134,12 +138,12 @@ template<typename ILhs, typename IRhs>
 
 template<typename ILhs, typename IRhs>
 [[nodiscard]] bool operator<(const dense_hash_map_iterator<ILhs> &lhs, const dense_hash_map_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
-    return lhs.base() < rhs.base();
+    return lhs.it < rhs.it;
 }
 
 template<typename ILhs, typename IRhs>
 [[nodiscard]] bool operator>(const dense_hash_map_iterator<ILhs> &lhs, const dense_hash_map_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
-    return lhs.base() > rhs.base();
+    return rhs < lhs;
 }
 
 template<typename ILhs, typename IRhs>
@@ -159,7 +163,6 @@ class dense_hash_map_local_iterator {
     using iterator_traits = std::iterator_traits<decltype(std::addressof(std::declval<It>()->element))>;
 
 public:
-    using iterator_type = It;
     using value_type = typename iterator_traits::value_type;
     using pointer = typename iterator_traits::pointer;
     using reference = typename iterator_traits::reference;
@@ -168,17 +171,17 @@ public:
 
     dense_hash_map_local_iterator() ENTT_NOEXCEPT = default;
 
-    dense_hash_map_local_iterator(iterator_type iter, const std::size_t pos) ENTT_NOEXCEPT
+    dense_hash_map_local_iterator(It iter, const std::size_t pos) ENTT_NOEXCEPT
         : it{iter},
-          curr{pos} {}
+          offset{pos} {}
 
-    template<bool Const = std::is_const_v<std::remove_pointer_t<iterator_type>>, typename = std::enable_if_t<Const>>
-    dense_hash_map_local_iterator(const dense_hash_map_local_iterator<std::remove_const_t<std::remove_pointer_t<iterator_type>> *> &other)
+    template<bool Const = std::is_const_v<std::remove_pointer_t<It>>, typename = std::enable_if_t<Const>>
+    dense_hash_map_local_iterator(const dense_hash_map_local_iterator<std::remove_const_t<std::remove_pointer_t<It>> *> &other)
         : it{other.it},
-          curr{other.curr} {}
+          offset{other.offset} {}
 
     dense_hash_map_local_iterator &operator++() ENTT_NOEXCEPT {
-        return curr = it[curr].next, *this;
+        return offset = it[offset].next, *this;
     }
 
     dense_hash_map_local_iterator operator++(int) ENTT_NOEXCEPT {
@@ -187,25 +190,25 @@ public:
     }
 
     [[nodiscard]] pointer operator->() const {
-        return std::addressof(it[curr].element);
+        return std::addressof(it[offset].element);
     }
 
     [[nodiscard]] reference operator*() const {
         return *operator->();
     }
 
-    [[nodiscard]] iterator_type base() const ENTT_NOEXCEPT {
-        return (it + curr);
+    [[nodiscard]] std::size_t index() const ENTT_NOEXCEPT {
+        return offset;
     }
 
 private:
-    iterator_type it;
-    std::size_t curr;
+    It it;
+    std::size_t offset;
 };
 
 template<typename ILhs, typename IRhs>
 [[nodiscard]] bool operator==(const dense_hash_map_local_iterator<ILhs> &lhs, const dense_hash_map_local_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
-    return lhs.base() == rhs.base();
+    return lhs.index() == rhs.index();
 }
 
 template<typename ILhs, typename IRhs>
@@ -254,7 +257,7 @@ class dense_hash_map final {
     [[nodiscard]] auto constrained_find(const Other &key, std::size_t bucket) {
         for(auto it = begin(bucket), last = end(bucket); it != last; ++it) {
             if(packed.second()(it->first, key)) {
-                return iterator{it.base()};
+                return begin() + it.index();
             }
         }
 
@@ -263,9 +266,9 @@ class dense_hash_map final {
 
     template<typename Other>
     [[nodiscard]] auto constrained_find(const Other &key, std::size_t bucket) const {
-        for(auto it = begin(bucket), last = end(bucket); it != last; ++it) {
+        for(auto it = cbegin(bucket), last = cend(bucket); it != last; ++it) {
             if(packed.second()(it->first, key)) {
-                return const_iterator{it.base()};
+                return cbegin() + it.index();
             }
         }
 
@@ -282,7 +285,7 @@ class dense_hash_map final {
         }
 
         if(const auto count = size() + 1u; count > (bucket_count() * max_load_factor())) {
-            rehash(count);
+            rehash(bucket_count() * 2u);
             index = hash_to_bucket(hash);
         }
 
@@ -299,13 +302,14 @@ class dense_hash_map final {
             for(; *curr != last; curr = &packed.first()[*curr].next) {}
             *curr = pos;
 
-            auto allocator = packed.first().get_allocator();
-            auto *ptr = packed.first().data() + pos;
+            using node_allocator_traits = typename alloc_traits::template rebind_traits<decltype(node_type::element)>;
+            typename node_allocator_traits::allocator_type allocator = packed.first().get_allocator();
+            auto *ptr = std::addressof(packed.first()[pos].element);
 
             std::destroy_at(ptr);
-            // no exception guarantees when mapped type has a throwing move constructor
-            using node_allocator_traits = typename alloc_traits::template rebind_traits<node_type>;
-            node_allocator_traits::construct(allocator, ptr, std::move(packed.first()[last]));
+            packed.first()[pos].next = packed.first().back().next;
+            // no exception guarantees when mapped type has a throwing move constructor (we're technically doomed)
+            node_allocator_traits::construct(allocator, ptr, std::move(packed.first().back().element));
         }
 
         packed.first().pop_back();
@@ -744,7 +748,7 @@ public:
     /**
      * @brief Finds an element with a key that compares _equivalent_ to a given
      * value.
-     * @tparam Other Type of the key value of the element to search for.
+     * @tparam Other Type of the key value of an element to search for.
      * @param key Key value of an element to search for.
      * @return An iterator to an element with the given key. If no such element
      * is found, a past-the-end iterator is returned.
@@ -774,7 +778,7 @@ public:
     /**
      * @brief Checks if the container contains an element with a key that
      * compares _equivalent_ to a given value.
-     * @tparam Other Type of the key value of the element to search for.
+     * @tparam Other Type of the key value of an element to search for.
      * @param key Key value of an element to search for.
      * @return True if there is such an element, false otherwise.
      */

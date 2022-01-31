@@ -155,7 +155,7 @@ class meta_any {
     using vtable_type = void(const operation, const any &, void *);
 
     template<typename Type>
-    static void basic_vtable([[maybe_unused]] const operation op, [[maybe_unused]] const any &from, [[maybe_unused]] void *to) {
+    static void basic_vtable([[maybe_unused]] const operation op, [[maybe_unused]] const any &value, [[maybe_unused]] void *other) {
         static_assert(std::is_same_v<std::remove_reference_t<std::remove_const_t<Type>>, Type>, "Invalid type");
 
         if constexpr(!std::is_void_v<Type>) {
@@ -163,21 +163,21 @@ class meta_any {
             case operation::deref:
                 if constexpr(is_meta_pointer_like_v<Type>) {
                     if constexpr(std::is_function_v<std::remove_const_t<typename std::pointer_traits<Type>::element_type>>) {
-                        *static_cast<meta_any *>(to) = any_cast<Type>(from);
+                        *static_cast<meta_any *>(other) = any_cast<Type>(value);
                     } else if constexpr(!std::is_same_v<std::remove_const_t<typename std::pointer_traits<Type>::element_type>, void>) {
-                        using in_place_type = decltype(adl_meta_pointer_like<Type>::dereference(any_cast<const Type &>(from)));
-                        static_cast<meta_any *>(to)->emplace<in_place_type>(adl_meta_pointer_like<Type>::dereference(any_cast<const Type &>(from)));
+                        using in_place_type = decltype(adl_meta_pointer_like<Type>::dereference(any_cast<const Type &>(value)));
+                        static_cast<meta_any *>(other)->emplace<in_place_type>(adl_meta_pointer_like<Type>::dereference(any_cast<const Type &>(value)));
                     }
                 }
                 break;
             case operation::seq:
                 if constexpr(is_complete_v<meta_sequence_container_traits<Type>>) {
-                    *static_cast<meta_sequence_container *>(to) = {std::in_place_type<Type>, std::move(const_cast<any &>(from))};
+                    *static_cast<meta_sequence_container *>(other) = {std::in_place_type<Type>, std::move(const_cast<any &>(value))};
                 }
                 break;
             case operation::assoc:
                 if constexpr(is_complete_v<meta_associative_container_traits<Type>>) {
-                    *static_cast<meta_associative_container *>(to) = {std::in_place_type<Type>, std::move(const_cast<any &>(from))};
+                    *static_cast<meta_associative_container *>(other) = {std::in_place_type<Type>, std::move(const_cast<any &>(value))};
                 }
                 break;
             }
@@ -509,15 +509,17 @@ public:
      * @return A sequence container proxy for the underlying object.
      */
     [[nodiscard]] meta_sequence_container as_sequence_container() ENTT_NOEXCEPT {
+        any detached = storage.as_ref();
         meta_sequence_container proxy;
-        vtable(operation::seq, storage.as_ref(), &proxy);
+        vtable(operation::seq, detached, &proxy);
         return proxy;
     }
 
     /*! @copydoc as_sequence_container */
     [[nodiscard]] meta_sequence_container as_sequence_container() const ENTT_NOEXCEPT {
+        any detached = storage.as_ref();
         meta_sequence_container proxy;
-        vtable(operation::seq, storage.as_ref(), &proxy);
+        vtable(operation::seq, detached, &proxy);
         return proxy;
     }
 
@@ -526,15 +528,17 @@ public:
      * @return An associative container proxy for the underlying object.
      */
     [[nodiscard]] meta_associative_container as_associative_container() ENTT_NOEXCEPT {
+        any detached = storage.as_ref();
         meta_associative_container proxy;
-        vtable(operation::assoc, storage.as_ref(), &proxy);
+        vtable(operation::assoc, detached, &proxy);
         return proxy;
     }
 
     /*! @copydoc as_associative_container */
     [[nodiscard]] meta_associative_container as_associative_container() const ENTT_NOEXCEPT {
+        any detached = storage.as_ref();
         meta_associative_container proxy;
-        vtable(operation::assoc, storage.as_ref(), &proxy);
+        vtable(operation::assoc, detached, &proxy);
         return proxy;
     }
 
@@ -577,6 +581,14 @@ public:
     /*! @copydoc as_ref */
     [[nodiscard]] meta_any as_ref() const ENTT_NOEXCEPT {
         return meta_any{*this, storage.as_ref()};
+    }
+
+    /**
+     * @brief Returns true if a wrapper owns its object, false otherwise.
+     * @return True if the wrapper owns its object, false otherwise.
+     */
+    [[nodiscard]] bool owner() const ENTT_NOEXCEPT {
+        return storage.owner();
     }
 
 private:
@@ -774,8 +786,7 @@ struct meta_data {
      * @brief Sets the value of a given variable.
      *
      * It must be possible to cast the instance to the parent type of the data
-     * member. Otherwise, invoking the setter results in an undefined
-     * behavior.<br/>
+     * member.<br/>
      * The type of the value is such that a cast or conversion to the type of
      * the variable is possible. Otherwise, invoking the setter does nothing.
      *
@@ -793,7 +804,7 @@ struct meta_data {
      * @brief Gets the value of a given variable.
      *
      * It must be possible to cast the instance to the parent type of the data
-     * member. Otherwise, invoking the getter results in an undefined behavior.
+     * member.
      *
      * @param instance An opaque instance of the underlying type.
      * @return A wrapper containing the value of the underlying variable.
@@ -904,8 +915,7 @@ struct meta_func {
      * conversion to the required types is possible. Otherwise, an empty and
      * thus invalid wrapper is returned.<br/>
      * It must be possible to cast the instance to the parent type of the member
-     * function. Otherwise, invoking the underlying function results in an
-     * undefined behavior.
+     * function.
      *
      * @param instance An opaque instance of the underlying type.
      * @param args Parameters to use to invoke the function.
@@ -967,7 +977,7 @@ private:
 /*! @brief Opaque wrapper for types. */
 class meta_type {
     template<auto Member, typename Pred>
-    [[nodiscard]] const auto *lookup(meta_any *const args, const typename internal::meta_type_node::size_type sz, Pred pred) const {
+    [[nodiscard]] std::decay_t<decltype(std::declval<internal::meta_type_node>().*Member)> lookup(meta_any *const args, const typename internal::meta_type_node::size_type sz, Pred pred) const {
         std::decay_t<decltype(node->*Member)> candidate{};
         size_type extent{sz + 1u};
         bool ambiguous{};
@@ -1246,8 +1256,7 @@ public:
      * @brief Invokes a function given an identifier, if possible.
      *
      * It must be possible to cast the instance to the parent type of the member
-     * function. Otherwise, invoking the underlying function results in an
-     * undefined behavior.
+     * function.
      *
      * @sa meta_func::invoke
      *
@@ -1259,6 +1268,11 @@ public:
      */
     meta_any invoke(const id_type id, meta_handle instance, meta_any *const args, const size_type sz) const {
         const auto *candidate = lookup<&node_type::func>(args, sz, [id](const auto *curr) { return curr->id == id; });
+
+        for(auto it = base().begin(), last = base().end(); it != last && !candidate; ++it) {
+            candidate = it->lookup<&node_type::func>(args, sz, [id](const auto *curr) { return curr->id == id; });
+        }
+
         return candidate ? candidate->invoke(std::move(instance), args) : meta_any{};
     }
 
@@ -1283,8 +1297,7 @@ public:
      * @brief Sets the value of a given variable.
      *
      * It must be possible to cast the instance to the parent type of the data
-     * member. Otherwise, invoking the setter results in an undefined
-     * behavior.<br/>
+     * member.<br/>
      * The type of the value is such that a cast or conversion to the type of
      * the variable is possible. Otherwise, invoking the setter does nothing.
      *
@@ -1304,7 +1317,7 @@ public:
      * @brief Gets the value of a given variable.
      *
      * It must be possible to cast the instance to the parent type of the data
-     * member. Otherwise, invoking the getter results in an undefined behavior.
+     * member.
      *
      * @param id Unique identifier.
      * @param instance An opaque instance of the underlying type.
@@ -1463,13 +1476,13 @@ class meta_sequence_container::meta_iterator {
     using vtable_type = void(const operation, const any &, void *);
 
     template<typename It>
-    static void basic_vtable(const operation op, const any &from, void *to) {
+    static void basic_vtable(const operation op, const any &value, void *other) {
         switch(op) {
         case operation::incr:
-            ++any_cast<It &>(const_cast<any &>(from));
+            ++any_cast<It &>(const_cast<any &>(value));
             break;
         case operation::deref:
-            static_cast<meta_any *>(to)->emplace<typename std::iterator_traits<It>::reference>(*any_cast<const It &>(from));
+            static_cast<meta_any *>(other)->emplace<typename std::iterator_traits<It>::reference>(*any_cast<const It &>(value));
             break;
         }
     }
@@ -1663,18 +1676,18 @@ class meta_associative_container::meta_iterator {
     using vtable_type = void(const operation, const any &, void *);
 
     template<bool KeyOnly, typename It>
-    static void basic_vtable(const operation op, const any &from, void *to) {
+    static void basic_vtable(const operation op, const any &value, void *other) {
         switch(op) {
         case operation::incr:
-            ++any_cast<It &>(const_cast<any &>(from));
+            ++any_cast<It &>(const_cast<any &>(value));
             break;
         case operation::deref:
-            const auto &it = any_cast<const It &>(from);
+            const auto &it = any_cast<const It &>(value);
             if constexpr(KeyOnly) {
-                static_cast<std::pair<meta_any, meta_any> *>(to)->first.emplace<decltype(*it)>(*it);
+                static_cast<std::pair<meta_any, meta_any> *>(other)->first.emplace<decltype(*it)>(*it);
             } else {
-                static_cast<std::pair<meta_any, meta_any> *>(to)->first.emplace<decltype((it->first))>(it->first);
-                static_cast<std::pair<meta_any, meta_any> *>(to)->second.emplace<decltype((it->second))>(it->second);
+                static_cast<std::pair<meta_any, meta_any> *>(other)->first.emplace<decltype((it->first))>(it->first);
+                static_cast<std::pair<meta_any, meta_any> *>(other)->second.emplace<decltype((it->second))>(it->second);
             }
             break;
         }

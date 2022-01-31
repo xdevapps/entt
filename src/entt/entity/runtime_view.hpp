@@ -23,8 +23,8 @@ namespace internal {
 template<typename Type>
 class runtime_view_iterator final {
     [[nodiscard]] bool valid() const {
-        return (no_tombstone_check || (*it != tombstone))
-               && std::all_of(pools->begin()++, pools->end(), [entt = *it](const auto *curr) { return curr->contains(entt); })
+        return (!tombstone_check || *it != tombstone)
+               && std::all_of(++pools->begin(), pools->end(), [entt = *it](const auto *curr) { return curr->contains(entt); })
                && std::none_of(filter->cbegin(), filter->cend(), [entt = *it](const auto *curr) { return curr && curr->contains(entt); });
     }
 
@@ -42,7 +42,7 @@ public:
         : pools{&cpools},
           filter{&ignore},
           it{curr},
-          no_tombstone_check{std::all_of(pools->cbegin(), pools->cend(), [](const Type *cpool) { return (cpool->policy() == deletion_policy::swap_and_pop); })} {
+          tombstone_check{pools->size() == 1u && (*pools)[0u]->policy() == deletion_policy::in_place} {
         if(it != (*pools)[0]->end() && !valid()) {
             ++(*this);
         }
@@ -88,7 +88,7 @@ private:
     const std::vector<const Type *> *pools;
     const std::vector<const Type *> *filter;
     iterator_type it;
-    bool no_tombstone_check;
+    bool tombstone_check;
 };
 
 } // namespace internal
@@ -99,7 +99,16 @@ private:
  */
 
 /**
- * @brief Runtime view.
+ * @brief Runtime view implementation.
+ *
+ * Primary template isn't defined on purpose. All the specializations give a
+ * compile-time error, but for a few reasonable cases.
+ */
+template<typename>
+struct basic_runtime_view;
+
+/**
+ * @brief Generic runtime view.
  *
  * Runtime views iterate over those entities that have at least all the given
  * components in their bags. During initialization, a runtime view looks at the
@@ -135,22 +144,18 @@ private:
  * In any other case, attempting to use a view results in undefined behavior.
  *
  * @tparam Entity A valid entity type (see entt_traits for more details).
+ * @tparam Allocator Type of allocator used to manage memory and elements.
  */
-template<typename Entity>
-class basic_runtime_view final {
-    using basic_common_type = basic_sparse_set<Entity>;
-
-    [[nodiscard]] bool valid() const {
-        return !pools.empty() && pools.front();
-    }
-
-public:
+template<typename Entity, typename Allocator>
+struct basic_runtime_view<basic_sparse_set<Entity, Allocator>> final {
     /*! @brief Underlying entity identifier. */
     using entity_type = Entity;
     /*! @brief Unsigned integer type. */
     using size_type = std::size_t;
+    /*! @brief Common type among all storage types. */
+    using base_type = basic_sparse_set<Entity, Allocator>;
     /*! @brief Bidirectional iterator type. */
-    using iterator = internal::runtime_view_iterator<basic_common_type>;
+    using iterator = internal::runtime_view_iterator<base_type>;
 
     /*! @brief Default constructor to use to create empty, invalid views. */
     basic_runtime_view() ENTT_NOEXCEPT
@@ -158,19 +163,28 @@ public:
           filter{} {}
 
     /**
-     * @brief Constructs a runtime view from a set of storage classes.
-     * @param cpools The storage for the types to iterate.
-     * @param epools The storage for the types used to filter the view.
+     * @brief Appends an opaque storage object to a runtime view.
+     * @param base An opaque reference to a storage object.
+     * @return This runtime view.
      */
-    basic_runtime_view(std::vector<const basic_common_type *> cpools, std::vector<const basic_common_type *> epools) ENTT_NOEXCEPT
-        : pools{std::move(cpools)},
-          filter{std::move(epools)} {
-        auto candidate = std::min_element(pools.begin(), pools.end(), [](const auto *lhs, const auto *rhs) {
-            return (!lhs && rhs) || (lhs && rhs && lhs->size() < rhs->size());
-        });
+    basic_runtime_view &iterate(const base_type &base) {
+        if(pools.empty() || !(base.size() < pools[0u]->size())) {
+            pools.push_back(&base);
+        } else {
+            pools.push_back(std::exchange(pools[0u], &base));
+        }
 
-        // brings the best candidate (if any) on front of the vector
-        std::rotate(pools.begin(), candidate, pools.end());
+        return *this;
+    }
+
+    /**
+     * @brief Adds an opaque storage object as a filter of a runtime view.
+     * @param base An opaque reference to a storage object.
+     * @return This runtime view.
+     */
+    basic_runtime_view &exclude(const base_type &base) {
+        filter.push_back(&base);
+        return *this;
     }
 
     /**
@@ -178,7 +192,7 @@ public:
      * @return Estimated number of entities iterated by the view.
      */
     [[nodiscard]] size_type size_hint() const {
-        return valid() ? pools.front()->size() : size_type{};
+        return pools.empty() ? size_type{} : pools.front()->size();
     }
 
     /**
@@ -192,7 +206,7 @@ public:
      * @return An iterator to the first entity that has the given components.
      */
     [[nodiscard]] iterator begin() const {
-        return valid() ? iterator{pools, filter, pools[0]->begin()} : iterator{};
+        return pools.empty() ? iterator{} : iterator{pools, filter, pools[0]->begin()};
     }
 
     /**
@@ -207,7 +221,7 @@ public:
      * given components.
      */
     [[nodiscard]] iterator end() const {
-        return valid() ? iterator{pools, filter, pools[0]->end()} : iterator{};
+        return pools.empty() ? iterator{} : iterator{pools, filter, pools[0]->end()};
     }
 
     /**
@@ -216,7 +230,8 @@ public:
      * @return True if the view contains the given entity, false otherwise.
      */
     [[nodiscard]] bool contains(const entity_type entt) const {
-        return valid() && std::all_of(pools.cbegin(), pools.cend(), [entt](const auto *curr) { return curr->contains(entt); })
+        return !pools.empty()
+               && std::all_of(pools.cbegin(), pools.cend(), [entt](const auto *curr) { return curr->contains(entt); })
                && std::none_of(filter.cbegin(), filter.cend(), [entt](const auto *curr) { return curr && curr->contains(entt); });
     }
 
@@ -243,8 +258,8 @@ public:
     }
 
 private:
-    std::vector<const basic_common_type *> pools;
-    std::vector<const basic_common_type *> filter;
+    std::vector<const base_type *> pools;
+    std::vector<const base_type *> filter;
 };
 
 } // namespace entt

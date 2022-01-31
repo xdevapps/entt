@@ -13,7 +13,7 @@ else()
     FetchContent_Declare(
         googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
-        GIT_TAG master
+        GIT_TAG main
         GIT_SHALLOW 1
     )
 
@@ -105,6 +105,7 @@ endif()
 
 if(ENTT_BUILD_EXAMPLE)
     SETUP_BASIC_TEST(custom_identifier example/custom_identifier.cpp)
+    SETUP_BASIC_TEST(entity_copy example/entity_copy.cpp)
     SETUP_BASIC_TEST(signal_less example/signal_less.cpp)
 endif()
 
@@ -162,6 +163,7 @@ endif()
 # Test container
 
 SETUP_BASIC_TEST(dense_hash_map entt/container/dense_hash_map.cpp)
+SETUP_BASIC_TEST(dense_hash_set entt/container/dense_hash_set.cpp)
 
 # Test core
 
@@ -187,7 +189,6 @@ SETUP_BASIC_TEST(group entt/entity/group.cpp)
 SETUP_BASIC_TEST(handle entt/entity/handle.cpp)
 SETUP_BASIC_TEST(helper entt/entity/helper.cpp)
 SETUP_BASIC_TEST(observer entt/entity/observer.cpp)
-SETUP_BASIC_TEST(poly_storage entt/entity/poly_storage.cpp)
 SETUP_BASIC_TEST(organizer entt/entity/organizer.cpp)
 SETUP_BASIC_TEST(registry entt/entity/registry.cpp)
 SETUP_BASIC_TEST(registry_no_eto entt/entity/registry_no_eto.cpp ENTT_NO_ETO)
